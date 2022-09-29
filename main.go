@@ -8,11 +8,20 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/sessions"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // struct
+type SesionData struct{
+	IsLogin bool
+	Username string
+	FlashData string
+}
+var Data = SesionData{}
 type Struktur struct {
 	Name string
 	Start_date string
@@ -25,6 +34,14 @@ type Struktur struct {
 	Gambar string
 	Duration string
 	Id int
+	IsLogin bool
+}
+
+type Structuser struct{
+	Id int
+	Name string
+	Email string
+	Password string
 }
 
 var iniArray = []Struktur{}
@@ -44,7 +61,15 @@ func main() {
 	route.HandleFunc("/delete/{id}", deleteProject).Methods("GET")
 
 
-	// contact Route
+	// auth
+	route.HandleFunc("/form-register",formRegister).Methods("GET")
+	route.HandleFunc("/register",register).Methods("POST")
+
+	
+	route.HandleFunc("/form-login",formLogin).Methods("GET")
+	route.HandleFunc("/login",login).Methods("POST")
+
+	route.HandleFunc("/logout",logout).Methods("GET")
 
 	// route.HandleFunc("/contact", contact).Methods("GET")
 
@@ -60,6 +85,31 @@ func home(res http.ResponseWriter, req *http.Request)  {
 	if err != nil {
 		res.Write([]byte("massage : HACKER JANGAN MENYERANG !" + err.Error()))
 	}
+
+	// sesion
+	var store = sessions.NewCookieStore([]byte("SESSION_KEY"))
+	session, _ := store.Get(req, "SESSION_KEY")
+
+	if session.Values["IsLogin"] != true {
+		Data.IsLogin = false
+	} else {
+		Data.IsLogin = session.Values["IsLogin"].(bool)
+		Data.Username = session.Values["Name"].(string)
+	}
+
+	fm := session.Flashes("message")
+
+	var  flashes []string
+
+	if len(fm) > 0{
+		session.Save(req, res)
+		for _, f1 := range fm {
+			// meamasukan flash message
+			flashes = append(flashes, f1.(string))
+		}
+	}
+
+	Data.FlashData = strings.Join(flashes, "")	
 
 	data,err := connection.Konekdb.Query(context.Background(), "SELECT id, name, description FROM tb_projects")
 
@@ -77,6 +127,7 @@ func home(res http.ResponseWriter, req *http.Request)  {
 	}
 
 		mapping := map[string]interface{}{
+			"DataSesion" : Data,
 			"show" :result,
 		}
 
@@ -244,6 +295,8 @@ func updateProject(res http.ResponseWriter, req *http.Request){
 	http.Redirect(res, req, "/", http.StatusFound)
 }
 
+
+// masih err
 func deleteProject(res http.ResponseWriter, req *http.Request){
 	id, _ := strconv.Atoi(mux.Vars(req)["id"])
 
@@ -254,4 +307,103 @@ func deleteProject(res http.ResponseWriter, req *http.Request){
 	}
 
 	http.Redirect(res, req, "/", http.StatusMovedPermanently)
+}
+
+func formRegister(res http.ResponseWriter, req *http.Request)  {
+	res.Header().Set("Content-Type","text/html; charset=utf-8")
+	theme, err := template.ParseFiles("views/auth/register.html")
+
+	if err != nil {
+		res.Write([]byte("massage : HACKER JANGAN MENYERANG !" + err.Error()))
+	}
+
+	theme.Execute(res, nil)
+}
+
+func register(res http.ResponseWriter, req *http.Request)  {
+	err := req.ParseForm()
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	name := req.PostForm.Get("name")
+	email := req.PostForm.Get("email")
+	password := req.PostForm.Get("password")
+
+	passwordhash, _ := bcrypt.GenerateFromPassword([]byte(password),10)
+
+	_, err = connection.Konekdb.Exec(context.Background(), "INSERT INTO tb_users(name, email, password) VALUES ($1,$2,$3)",name, email,passwordhash)
+	if err != nil {
+		res.WriteHeader(http.StatusInternalServerError)
+		res.Write([]byte("message : " + err.Error()))
+		return
+	}
+
+	http.Redirect(res, req, "/form-login", http.StatusMovedPermanently)	
+}
+func formLogin(res http.ResponseWriter, req *http.Request)  {
+	res.Header().Set("Content-Type","text/html; charset=utf-8")
+	theme, err := template.ParseFiles("views/auth/login.html")
+
+	if err != nil {
+		res.Write([]byte("massage : HACKER JANGAN MENYERANG !" + err.Error()))
+	}
+
+	theme.Execute(res, nil)
+}
+
+func login(res http.ResponseWriter, req *http.Request)  {
+	err := req.ParseForm()
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	email := req.PostForm.Get("email")
+	password := req.PostForm.Get("password")
+
+
+	user := Structuser{}
+
+	// mengambil data email, dan melakukan pengecekan email
+	err = connection.Konekdb.QueryRow(context.Background(), "SELECT * FROM tb_users WHERE email=$1",email).Scan(&user.Id, &user.Name, &user.Email, &user.Password)
+	if err != nil {
+		res.WriteHeader(http.StatusInternalServerError)
+		res.Write([]byte("message : " + err.Error()))
+		return
+	}
+
+	// melakukan pengecekan password
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
+	if err != nil {
+		res.WriteHeader(http.StatusInternalServerError)
+		res.Write([]byte("message : " + err.Error()))
+		return
+	}
+
+	var store = sessions.NewCookieStore([]byte("SESSION_KEY"))
+	session, _ := store.Get(req, "SESSION_KEY")
+
+	session.Values["Name"] = user.Name
+	session.Values["Email"] = user.Email
+	session.Values["IsLogin"] = true
+// password jangan d masukin sesion bahaya!
+	session.Options.MaxAge = 10800 //3jam(expired cookie)
+
+	session.AddFlash("succesfull login","message")
+	session.Save(req, res)
+
+
+	http.Redirect(res, req, "/", http.StatusMovedPermanently)	
+}
+
+func logout(w http.ResponseWriter, r *http.Request) {
+
+	var store = sessions.NewCookieStore([]byte("SESSION_KEY"))
+	session, _ := store.Get(r, "SESSION_KEY")
+	session.Options.MaxAge = -1
+	session.Save(r, w)
+
+	http.Redirect(w, r, "/form-login", http.StatusSeeOther)
 }

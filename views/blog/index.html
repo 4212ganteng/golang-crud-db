@@ -57,16 +57,36 @@
                 >Home</a
               >
             </li>
+            {{if .DataSesion.IsLogin}}
             <li class="nav-item me-2">
               <a class="nav-link" href="/add-blog">Add Project</a>
             </li>
+            {{end}}
           </ul>
-          <form class="d-flex">
+          <div class="d-flex">
+            <div class="me-3">
+              {{if .DataSesion.IsLogin}}
+              <a href="#">Hallo {{.DataSesion.Username}}</a>
+              <a href="/logout">logout</a>
+              {{else}}
+              <a href="/form-register">register</a> |
+              <a href="/form-login">login</a>
+              {{end}}
+            </div>
             <a class="btn-nav" href="/contact">Contact Me</a>
-          </form>
+          </div>
         </div>
       </div>
     </nav>
+
+
+    <!-- masih gak jalan flash data nya -->
+    {{if .FlashData}}
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <strong>{{.FlashData}}</strong>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {{end}}
     <!-- section 1 -->
     <div class="section-1">
       <div class="container d-flex justify-content-center align-items-center">
